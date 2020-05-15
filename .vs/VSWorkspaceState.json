@@ -1,0 +1,11 @@
+{
+  "ExpandedNodes": [
+    "",
+    "\\src",
+    "\\src\\core",
+    "\\src\\services",
+    "\\src\\services\\pathfinding"
+  ],
+  "SelectedNode": "\\src\\core\\client.ts",
+  "PreviewInSolutionExplorer": false
+}
