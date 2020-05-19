@@ -3,6 +3,8 @@
     "",
     "\\src",
     "\\src\\core",
+    "\\src\\models",
+    "\\src\\runtime",
     "\\src\\services",
     "\\src\\services\\pathfinding"
   ],

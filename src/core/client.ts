@@ -73,7 +73,7 @@ export class Client {
    * client.nextPos.push(pos);
    * ```
    */
-  readonly nextPos: WorldPosData[];
+  nextPos: WorldPosData[];
   /**
    * Info about the current map.
    * @see `MapInfo` for more information.
@@ -266,10 +266,10 @@ export class Client {
    */
   shoot(angle: number): boolean {
     // tslint:disable-next-line: no-bitwise
-    if (hasEffect(this.playerData.condition, ConditionEffect.STUNNED | ConditionEffect.PAUSED)) {
+    if (hasEffect(this.playerData.condition, ConditionEffect.STUNNED | ConditionEffect.PAUSED | ConditionEffect.NOT_USED)) {
       return false;
     }
-    const time = this.getTime();
+    const time = this.lastFrameTime;
     const item = this.runtime.resources.items[this.playerData.inventory[0]];
     const attackPeriod = 1 / this.getAttackFrequency() * (1 / item.rateOfFire);
     const numProjectiles = item.numProjectiles > 0 ? item.numProjectiles : 1;
@@ -454,12 +454,12 @@ export class Client {
    */
   private applyDamage(amount: number, armorPiercing: boolean, time: number): boolean {
     if (time === -1) {
-      time = this.getTime();
+      time = this.lastFrameTime;
     }
 
     // if the player is currently invincible, they take no damage.
     // tslint:disable-next-line: no-bitwise
-    const invincible = ConditionEffect.INVINCIBLE | ConditionEffect.INVULNERABLE | ConditionEffect.PAUSED;
+    const invincible = ConditionEffect.INVINCIBLE | ConditionEffect.INVULNERABLE | ConditionEffect.PAUSED | ConditionEffect.NOT_USED;
     if (hasEffect(this.playerData.condition, invincible)) {
       return false;
     }
@@ -490,185 +490,141 @@ export class Client {
       const p = this.projectiles[i];
 
       // Check if projectile's lifetime is over
-      if (!p.update(this.getTime())) {
+      if (!p.update(time)) {
         this.projectiles.splice(i, 1);
         continue;
       }
 
       // Check collision with tile
-      if (this.collideWall(p)) {
+      if (this.collideWall(p, time)) {
         this.projectiles.splice(i, 1);
         continue;
       }
 
-      if (this.projectiles[i].damagePlayers) {
-        // check if it hit the player.
-        if (this.collidePlayer(p, time)) {
-          this.projectiles.splice(i, 1);
-          continue;
-        }
+      if (this.collideEntity(p, time)) {
+        this.projectiles.splice(i, 1);
+      }
 
-        // check if it hit another player.
-        if (this.collideOtherPlayers(p)) {
-          this.projectiles.splice(i, 1);
-          continue;
+      /*
+
+      // check if it hit the player.
+      if (this.collidePlayer(p, time)) {
+        this.projectiles.splice(i, 1);
+        continue;
+      }
+
+      // check if it hit another player.
+      if (this.collideOtherPlayers(p)) {
+        this.projectiles.splice(i, 1);
+        continue;
+      }
+
+      // check if it hit an enemy.
+      if (this.collideEnemies(p)) {
+        this.projectiles.splice(i, 1);
+        continue;
+      }
+      */
+    }
+  }
+
+  private collideEntity(p: Projectile, time: number): boolean {
+    const clientHit = insideSquare(p.currentPosition, this.worldPos, 0.5);
+
+    if (clientHit) {
+      const nexused = this.applyDamage(p.damage, p.projectileProperties.armorPiercing, time);
+      if (nexused) return true;
+
+      this.playerHit(p.bulletId, p.ownerObjectId);
+
+      if (p.projectileProperties.multiHit) {
+        if (!p.multiHit.has(this.objectId)) {
+          p.multiHit.add(this.objectId);
+        }
+        return false;
+      }
+      else {
+        return true;
+      }
+    }
+
+    let closestEntity: [number, Entity, boolean] = [Infinity, undefined, false];
+
+    for (let e of this.players.values()) {
+      const hasHitbox = !hasEffect(e.objectData.condition, ConditionEffect.STASIS | ConditionEffect.PAUSED | ConditionEffect.INVINCIBLE);
+      const alreadyHit = p.projectileProperties.multiHit && p.multiHit.has(e.objectData.objectId);
+      const shouldDamage = p.damagePlayers;
+      const shouldCollide = insideSquare(p.currentPosition, e.objectData.worldPos, 0.5);
+
+      if (hasHitbox && !alreadyHit && shouldDamage && shouldCollide) {
+        const distance = e.squareDistanceTo(p.currentPosition);
+        const isCloser = distance < closestEntity[0];
+        if (isCloser) closestEntity = [distance, e, false];
+      }
+    }
+
+    for (let e of this.enemies.values()) {
+      const hasHitbox = !hasEffect(e.objectData.condition, ConditionEffect.STASIS | ConditionEffect.PAUSED | ConditionEffect.INVINCIBLE);
+      const isDead = e.dead;
+      const alreadyHit = p.projectileProperties.multiHit && p.multiHit.has(e.objectData.objectId);
+      const shouldDamage = p.ownerObjectId == this.objectId;
+      const shouldCollide = insideSquare(p.currentPosition, e.objectData.worldPos, 0.5);
+
+      if (hasHitbox && !isDead && !alreadyHit && shouldDamage && shouldCollide) {
+        const distance = e.squareDistanceTo(p.currentPosition);
+        const isCloser = distance < closestEntity[0];
+        if (isCloser) closestEntity = [distance, e, true];
+      }
+    }
+    
+    if (closestEntity[1]) {
+      if (closestEntity[2] == true) {
+        const enemy = closestEntity[1] as Enemy;
+        this.enemyHitWithProjectile(enemy, p, time);
+      }
+      else if (!p.projectileProperties.multiHit) {
+        this.otherHit(time, p.bulletId, p.ownerObjectId, closestEntity[1].objectData.objectId);
+      }
+
+      if (p.projectileProperties.multiHit) {
+        if (!p.multiHit.has(closestEntity[1].objectData.objectId)) {
+          p.multiHit.add(closestEntity[1].objectData.objectId);
         }
       }
       else {
-        // check if it hit an enemy.
-        if (this.collideEnemies(p)) {
-          this.projectiles.splice(i, 1);
-          continue;
-        }
+        return true;
       }
     }
+    return false;
   }
 
   // Does the collision logic for a projectile and an object, and returns whether or not
   // the projectile should be deleted.
-  private collideWall(p: Projectile): boolean {
+  private collideWall(p: Projectile, time: number): boolean {
     // Get tile of projectile
     const x = Math.floor(p.currentPosition.x);
     const y = Math.floor(p.currentPosition.y);
 
     const tile = this.mapTiles[y * this.mapInfo.width + x];
     const tileOccupied = tile && tile.occupied;
-    const shouldCollide = tileOccupied && p.projectileProperties.passesCover;
+    const shouldCollide = tileOccupied && !p.projectileProperties.passesCover;
 
     // Collide with the tile if it should
-    if (shouldCollide)
-      this.otherHit(this.getTime(), p.bulletId, p.ownerObjectId, tile.occupiedBy);
+    if (shouldCollide && p.damagePlayers)
+      this.otherHit(time, p.bulletId, p.ownerObjectId, tile.occupiedBy);
 
     return shouldCollide;
   }
 
-  // Does the collision logic for a projectile and the player, and returns whether or not
-  // the projectile should be deleted.
-  private collidePlayer(p: Projectile, time: number): boolean {
-    // Return false if the projectile has already hit the player
-    const alreadyHit = p.projectileProperties.multiHit && p.multiHit.has(this.objectId);
-    if (alreadyHit) return false;
-
-    // Return false if the player is not within the hitbox of the projectile.
-    const shouldCollide = insideSquare(p.currentPosition, this.worldPos, 0.5);
-    if (!shouldCollide) return false;
-
-    // Return false if the player should not reply to the server and nexus instead.
-    const nexused = this.applyDamage(p.damage, p.projectileProperties.armorPiercing, time);
-    if (nexused) return false;
-
-    // Reply to the server with a PlayerHitPacket
-    this.playerHit(p.bulletId, p.ownerObjectId);
-
-    // Return true if the projectile is not multihit and has passed the previous checks
-    const isMultiHit = p.projectileProperties.multiHit;
-    if (!isMultiHit) return true;
-
-    // Otherwise return false and add the player to the list of hit objects
-    p.multiHit.add(this.objectId);
-    return false;
-  }
-
-  // Does the collision logic for a projectile and other players, and returns whether or not
-  // the projectile should be deleted.
-  private collideOtherPlayers(p: Projectile): boolean {
-    // Return early if there are no players
-    if (this.players.size <= 0) return false;
-
-    let closestCollidedPlayer: [number, Entity] = [Infinity, undefined];
-    const collidedPlayers = [];
-    const isMultiHit = p.projectileProperties.multiHit;
-
-    // Iterate through each player, finding the players within the hitbox of the projectile,
-    // and the closest player.
-    for (const player of this.players.values()) {
-      const alreadyHit = isMultiHit && p.multiHit.has(player.objectData.objectId);
-      if (alreadyHit) continue;
-
-      const isPaused = !hasEffect(player.objectData.condition, ConditionEffect.PAUSED);
-
-      const canCollide = insideSquare(p.currentPosition, this.worldPos, 0.5);
-      if (canCollide && !isPaused) collidedPlayers.push(player);
-
-      const distance = player.squareDistanceTo(p.currentPosition);
-
-      const isCloser = distance < closestCollidedPlayer[0];
-      if (isCloser && canCollide && !isPaused) closestCollidedPlayer = [distance, player];
-    }
-
-    // If the projectile is multihit, send an OtherHitPacket for each hit player
-    if (isMultiHit) {
-      for (const player of collidedPlayers) {
-        this.otherHit(this.getTime(), p.bulletId, p.ownerObjectId, player.objectData.objectId);
-        p.multiHit.add(player.objectData.objectId);
-      }
-      return false;
-    }
-    // Otherwise, send an OtherHitPacket for the closest player and return true
-    else {
-      const player = closestCollidedPlayer[1];
-      if (player) {
-        this.otherHit(this.getTime(), p.bulletId, p.ownerObjectId, player.objectData.objectId);
-        return true;
-      }
-    }
-    // Return false if nothing was hit
-    return false;
-  }
-
-  // Does the collision logic for a projectile and enemies, and returns whether or not
-  // the projectile should be deleted.
-  private collideEnemies(p: Projectile): boolean {
-    // Return early if there are no enemies
-    if (this.enemies.size <= 0) return false;
-
-    let closestCollidedEnemy: [number, Enemy] = [Infinity, undefined];
-    const collidedEnemies = [];
-    const isMultiHit = p.projectileProperties.multiHit;
-
-    // Iterate through each enemy, finding the enemies within the hitbox of the projectile,
-    // and the closest enemy.
-    for (const enemy of this.enemies.values()) {
-      const alreadyHit = isMultiHit && p.multiHit.has(enemy.objectData.objectId);
-      if (alreadyHit) continue;
-
-      const canCollide = insideSquare(p.currentPosition, this.worldPos, 0.5);
-      if (canCollide && !enemy.dead) collidedEnemies.push(enemy);
-
-      const distance = enemy.squareDistanceTo(p.currentPosition);
-
-      const isCloser = distance < closestCollidedEnemy[0];
-      if (isCloser && canCollide && !enemy.dead) closestCollidedEnemy = [distance, enemy];
-    }
-
-    // If the projectile is multihit, send an EnemyHitPacket for each hit enemy
-    if (isMultiHit) {
-      for (const enemy of collidedEnemies) {
-        this.enemyHitWithProjectile(enemy, p);
-        p.multiHit.add(enemy.objectData.objectId);
-      }
-      return false;
-    }
-    // Otherwise, send an EnemyHitPacket for the closest enemy and return true
-    else {
-      const enemy = closestCollidedEnemy[1];
-      if (enemy) {
-        this.enemyHitWithProjectile(enemy, p);
-        return true;
-      }
-    }
-    // Return false if nothing was hit
-    return false;
-  }
-
   // Given a projectile and an enemy, create and send an EnemyHitPacket for the collision
   // of the two
-  private enemyHitWithProjectile(enemy: Enemy, p: Projectile): void {
+  private enemyHitWithProjectile(enemy: Enemy, p: Projectile, time: number): void {
     const piercing = p.projectileProperties.armorPiercing;
     const damage = enemy.damage(p.damage, piercing);
     const kill = enemy.objectData.hp <= damage;
-    this.enemyHit(this.getTime(), p.bulletId, enemy.objectData.objectId, kill);
     if (kill) enemy.dead = true;
+    Logger.log(this.alias, `EnemyHit Dmg: ${damage}`);
+    this.enemyHit(time, p.bulletId, enemy.objectData.objectId, kill);
   }
 
   // Create and send an OtherHitPacket
@@ -717,7 +673,7 @@ export class Client {
     }
 
     // don't damage if the last damage was less than 500 ms ago.
-    const now = this.getTime();
+    const now = this.lastFrameTime;
     if (tile.lastDamage + 500 > now) {
       return;
     }
@@ -1034,7 +990,7 @@ export class Client {
     let nexused = false;
     if (aoePacket.pos.squareDistanceTo(this.worldPos) < aoePacket.radius ** 2) {
       // apply the aoe damage if in range.
-      nexused = this.applyDamage(aoePacket.damage, aoePacket.armorPiercing, this.getTime());
+      nexused = this.applyDamage(aoePacket.damage, aoePacket.armorPiercing, this.lastFrameTime);
     }
     // only reply if the client didn't nexus.
     if (!nexused) {
@@ -1187,7 +1143,7 @@ export class Client {
         this.moveTo(this.nextPos[0], diff);
       }
       this.moveRecords.addRecord(time, this.worldPos.x, this.worldPos.y);
-      this.checkGroundDamage(time);
+      // this.checkGroundDamage(time);
     }
     if (this.players.size > 0) {
       for (const player of this.players.values()) {
