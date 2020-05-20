@@ -1000,9 +1000,8 @@ export class Client {
 
   @PacketHook()
   private onNewTick(newTickPacket: NewTickPacket): void {
-    this.lastTickTime = this.currentTickTime;
+    this.lastTickTime = newTickPacket.tickTime;
     this.lastTickId = newTickPacket.tickId;
-    this.currentTickTime = this.getTime();
     // reply
     const movePacket = new MovePacket();
     movePacket.tickId = newTickPacket.tickId;
@@ -1031,8 +1030,6 @@ export class Client {
       this.tileMultiplier = this.runtime.resources.tiles[this.mapTiles[y * this.mapInfo.width + x].type].speed;
     }
 
-    const elapsedMS = this.currentTickTime - this.lastTickTime;
-
     for (const status of newTickPacket.statuses) {
       if (status.objectId === this.objectId) {
         this.playerData = parsers.processStatData(status.stats, this.playerData);
@@ -1042,11 +1039,11 @@ export class Client {
         continue;
       }
       if (this.enemies.has(status.objectId)) {
-        this.enemies.get(status.objectId).onNewTick(status, elapsedMS, newTickPacket.tickId, this.lastFrameTime);
+        this.enemies.get(status.objectId).onNewTick(status, newTickPacket.tickTime, newTickPacket.tickId, this.lastFrameTime);
         continue;
       }
       if (this.players.has(status.objectId)) {
-        this.players.get(status.objectId).onNewTick(status, elapsedMS, newTickPacket.tickId, this.lastFrameTime);
+        this.players.get(status.objectId).onNewTick(status, newTickPacket.tickTime, newTickPacket.tickId, this.lastFrameTime);
       }
     }
 

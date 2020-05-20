@@ -25,8 +25,7 @@ export class ConditionEffects {
  */
 export function hasEffect(condition: number, effect: ConditionEffect): boolean {
   // tslint:disable no-bitwise
-  const effectBit = 1 << effect - 1;
-  return (condition & effectBit) === 1;
+  return (condition & effect) > 0;
   // tslint:enable no-bitwise
 }
 
@@ -35,33 +34,33 @@ export function hasEffect(condition: number, effect: ConditionEffect): boolean {
  */
 export enum ConditionEffect {
   NOTHING = 0,
-  DEAD = 1,
-  QUIET = 2,
-  WEAK = 3,
-  SLOWED = 4,
-  SICK = 5,
-  DAZED = 6,
-  STUNNED = 7,
-  BLIND = 8,
-  HALLUCINATING = 9,
-  DRUNK = 10,
-  CONFUSED = 11,
-  STUN_IMMUNE = 12,
-  INVISIBLE = 13,
-  PARALYZED = 14,
-  SPEEDY = 15,
-  BLEEDING = 16,
-  NOT_USED = 17,
-  HEALING = 18,
-  DAMAGING = 19,
-  BERSERK = 20,
-  PAUSED = 21,
-  STASIS = 22,
-  STASIS_IMMUNE = 23,
-  INVINCIBLE = 24,
-  INVULNERABLE = 25,
-  ARMORED = 26,
-  ARMORBROKEN = 27,
-  HEXED = 28,
-  NINJA_SPEEDY = 29,
+  DEAD = 2 ** 0,
+  QUIET = 2 ** 1,
+  WEAK = 2 ** 2,
+  SLOWED = 2 ** 3,
+  SICK = 2 ** 4,
+  DAZED = 2 ** 5,
+  STUNNED = 2 ** 6,
+  BLIND = 2 ** 7,
+  HALLUCINATING = 2 ** 8,
+  DRUNK = 2 ** 9,
+  CONFUSED = 2 ** 10,
+  STUN_IMMUNE = 2 ** 11,
+  INVISIBLE = 2 ** 12,
+  PARALYZED = 2 ** 13,
+  SPEEDY = 2 ** 14,
+  BLEEDING = 2 ** 15,
+  NOT_USED = 2 ** 16,
+  HEALING = 2 ** 17,
+  DAMAGING = 2 ** 18,
+  BERSERK = 2 ** 19,
+  PAUSED = 2 ** 20,
+  STASIS = 2 ** 21,
+  STASIS_IMMUNE = 2 ** 22,
+  INVINCIBLE = 2 ** 23,
+  INVULNERABLE = 2 ** 24,
+  ARMORED = 2 ** 25,
+  ARMORBROKEN = 2 ** 26,
+  HEXED = 2 ** 27,
+  NINJA_SPEEDY = 2 ** 28,
 }
